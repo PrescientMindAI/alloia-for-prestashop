@@ -1,0 +1,84 @@
+name: Release PrestaShop Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 1.0.8). Leave empty to auto-detect from alloiaprestashop.php.'
+        required: false
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        run: |
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" .
+          git checkout "${{ github.ref_name }}"
+
+      - name: Detect version
+        id: version
+        run: |
+          V="${{ inputs.version }}"
+          if [ -z "$V" ]; then
+            V=$(grep -o "version = '[0-9.]*'" alloiaprestashop.php | grep -o "[0-9][0-9.]*")
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Version: $V"
+
+      - name: Build zip
+        run: |
+          mkdir -p /tmp/alloiaprestashop
+          cp -r . /tmp/alloiaprestashop/alloiaprestashop
+          # Remove git metadata from the zip
+          rm -rf /tmp/alloiaprestashop/alloiaprestashop/.git
+          cd /tmp
+          zip -r $GITHUB_WORKSPACE/alloiaprestashop.zip alloiaprestashop
+          ls -lh $GITHUB_WORKSPACE/alloiaprestashop.zip
+
+      - name: Create GitHub release
+        run: |
+          TAG="prestashop-v${{ steps.version.outputs.version }}"
+          TITLE="PrestaShop Plugin v${{ steps.version.outputs.version }}"
+          NOTES="## AlloIA for PrestaShop v${{ steps.version.outputs.version }}
+
+          ### Installation
+          1. Download alloiaprestashop.zip
+          2. PrestaShop back office > Modules > Module Manager > Upload a module
+          3. Configure your AlloIA API key (get it from your dashboard)
+          4. Validate your domain ownership
+          5. Start syncing your products!
+
+          ### Upgrade
+          If upgrading, PrestaShop will automatically run the upgrade scripts.
+
+          ### Requirements
+          - PrestaShop 1.7+
+          - PHP 7.4+"
+
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" \
+            -d "{
+              \"tag_name\": \"$TAG\",
+              \"name\": \"$TITLE\",
+              \"body\": $(echo "$NOTES" | jq -Rs .),
+              \"draft\": false,
+              \"prerelease\": false,
+              \"make_latest\": \"true\"
+            }" > /tmp/release.json
+
+          cat /tmp/release.json
+          UPLOAD_URL=$(jq -r '.upload_url' /tmp/release.json | sed 's/{?name,label}//')
+
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/zip" \
+            --data-binary @alloiaprestashop.zip \
+            "${UPLOAD_URL}?name=alloiaprestashop.zip"
