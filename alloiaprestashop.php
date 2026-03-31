@@ -15,6 +15,7 @@ if (!defined('_PS_VERSION_')) {
 require_once dirname(__FILE__) . '/src/AlloiaApiClient.php';
 require_once dirname(__FILE__) . '/src/ProductExporter.php';
 require_once dirname(__FILE__) . '/src/AlloiaCore.php';
+require_once dirname(__FILE__) . '/src/AlloiaUpdater.php';
 
 class AlloiaPrestashop extends Module
 {
@@ -139,6 +140,22 @@ class AlloiaPrestashop extends Module
         }
 
         $output = '';
+
+        // Check for available plugin update (cached 24 h)
+        $updater = new AlloiaUpdater();
+        if ($updater->isUpdateAvailable($this->version)) {
+            $latestVersion = $updater->getLatestVersion();
+            $releaseUrl    = $updater->getReleaseUrl() ?: 'https://github.com/PrescientMindAI/alloia-for-prestashop/releases/latest';
+            $output .= $this->displayInformation(
+                sprintf(
+                    $this->l('A new version of AlloIA is available: %s. %s'),
+                    '<strong>' . htmlspecialchars($latestVersion) . '</strong>',
+                    '<a href="' . htmlspecialchars($releaseUrl) . '" target="_blank" rel="noopener">'
+                    . $this->l('Download update') . '</a>'
+                )
+            );
+        }
+
         // Warn if back office is not served over HTTPS (form would submit over unsecured connection)
         if (!$this->isSecureConnection()) {
             $output .= $this->displayWarning(
