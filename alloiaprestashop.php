@@ -5,7 +5,7 @@
  * @author    AlloIA Team
  * @copyright 2025 AlloIA
  * @license   MIT
- * @version   1.0.8
+ * @version   1.0.9
  */
 
 if (!defined('_PS_VERSION_')) {
@@ -43,7 +43,7 @@ class AlloiaPrestashop extends Module
     {
         $this->name = 'alloiaprestashop';
         $this->tab = 'administration';
-        $this->version = '1.0.8';
+        $this->version = '1.0.9';
         $this->author = 'AlloIA Team';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [

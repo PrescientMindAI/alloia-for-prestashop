@@ -88,40 +88,120 @@ class AlloiaCore
         if (is_array($linkRewrite)) {
             $linkRewrite = isset($linkRewrite[$idLang]) ? $linkRewrite[$idLang] : reset($linkRewrite);
         }
-        $slug = $linkRewrite ?: ('product-' . $idProduct);
-        $graphUrl = 'https://www.alloia.io/product/' . rawurlencode($slug) . '?domain=' . rawurlencode($domain);
+        $slug    = $linkRewrite ?: ('product-' . $idProduct);
+        $langIso = $this->context->language->iso_code ?: 'en';
+        $graphUrl = 'https://www.alloia.io/product/' . rawurlencode($langIso) . '/' . rawurlencode($slug) . '?domain=' . rawurlencode($domain);
 
         $productUrl = $this->context->link->getProductLink($product);
-        $name = $product->name;
+        $shopName   = Configuration::get('PS_SHOP_NAME') ?: 'Shop';
+        $name        = $product->name;
         $description = strip_tags($product->description_short ?: $product->description);
-        $sku = $product->reference ?: ('presta-' . $idProduct);
-        $price = (float) $product->getPrice(true, null, 2);
-        $currency = $this->context->currency->iso_code ?: 'EUR';
-        $inStock = (int) StockAvailable::getQuantityAvailableByProduct($idProduct) > 0;
+        $sku         = $product->reference ?: ('presta-' . $idProduct);
+        $basePrice   = (float) $product->getPrice(true, null, 2);
+        $currency    = $this->context->currency->iso_code ?: 'EUR';
+        $priceUntil  = date('Y-m-d', strtotime('+1 year'));
+
+        // --- Image ---
+        $imageUrls = [];
+        $allImages = Image::getImages($idLang, $idProduct);
+        foreach ($allImages as $img) {
+            $imgUrl = $this->context->link->getImageLink($linkRewrite, $img['id_image'], 'large_default');
+            if (strpos($imgUrl, 'http') !== 0) {
+                $imgUrl = (Configuration::get('PS_SSL_ENABLED') ? 'https' : 'http') . '://' . $imgUrl;
+            }
+            $imageUrls[] = $imgUrl;
+        }
+
+        // --- Brand ---
+        $brandName = '';
+        if (!empty($product->id_manufacturer)) {
+            $brandName = (string) Manufacturer::getNameById((int) $product->id_manufacturer);
+        }
+
+        // --- GTIN / MPN ---
+        $gtin = '';
+        if (!empty($product->ean13))  { $gtin = $product->ean13; }
+        elseif (!empty($product->isbn))  { $gtin = $product->isbn; }
+        elseif (!empty($product->upc))   { $gtin = $product->upc; }
+        $mpn = !empty($product->mpn) ? $product->mpn : '';
+
+        // --- Offers: one per combination, or single offer ---
+        $combinations = $product->getAttributeCombinations($idLang);
+        if (!empty($combinations)) {
+            $seen   = [];
+            $offers = [];
+            foreach ($combinations as $combo) {
+                $idAttr = (int) $combo['id_product_attribute'];
+                if (isset($seen[$idAttr])) {
+                    continue;
+                }
+                $seen[$idAttr] = true;
+                $comboPrice = (float) $product->getPrice(true, $idAttr, 2);
+                $comboStock = (int) StockAvailable::getQuantityAvailableByProduct($idProduct, $idAttr) > 0;
+                $offer = [
+                    '@type'           => 'Offer',
+                    'url'             => $productUrl,
+                    'priceCurrency'   => $currency,
+                    'price'           => $comboPrice,
+                    'availability'    => $comboStock
+                        ? 'https://schema.org/InStock'
+                        : 'https://schema.org/OutOfStock',
+                    'priceValidUntil' => $priceUntil,
+                    'seller'          => ['@type' => 'Organization', 'name' => $shopName],
+                ];
+                if (!empty($combo['reference'])) { $offer['sku']    = $combo['reference']; }
+                if (!empty($combo['ean13']))      { $offer['gtin13'] = $combo['ean13']; }
+                if (!empty($combo['mpn']))        { $offer['mpn']    = $combo['mpn']; }
+                $offers[] = $offer;
+            }
+            // variesBy: collect unique attribute group names
+            $variesBy = [];
+            foreach ($combinations as $combo) {
+                if (!empty($combo['group_name']) && !in_array($combo['group_name'], $variesBy, true)) {
+                    $variesBy[] = $combo['group_name'];
+                }
+            }
+        } else {
+            $inStock = (int) StockAvailable::getQuantityAvailableByProduct($idProduct) > 0;
+            $offers  = [
+                '@type'           => 'Offer',
+                'url'             => $productUrl,
+                'priceCurrency'   => $currency,
+                'price'           => $basePrice,
+                'availability'    => $inStock
+                    ? 'https://schema.org/InStock'
+                    : 'https://schema.org/OutOfStock',
+                'priceValidUntil' => $priceUntil,
+                'seller'          => ['@type' => 'Organization', 'name' => $shopName],
+            ];
+            $variesBy = [];
+        }
 
         $rating = $this->getProductRating($idProduct);
-        $productData = [
-            '@context' => 'https://schema.org',
-            '@type'    => 'Product',
-            'url'      => $productUrl,
-            'sameAs'   => $graphUrl,
-            'name'     => $name,
-            'sku'      => $sku,
-            'description' => $description,
-            'offers'   => [
-                '@type'          => 'Offer',
-                'url'            => $productUrl,
-                'priceCurrency'  => $currency,
-                'price'          => $price,
-                'availability'   => $inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
-                'priceValidUntil' => date('Y-m-d', strtotime('+1 year')),
-                'seller'         => [
-                    '@type' => 'Organization',
-                    'name'  => Configuration::get('PS_SHOP_NAME') ?: 'Shop',
-                ],
-            ],
-            ...($rating !== null ? ['aggregateRating' => $rating] : []),
-        ];
+
+        $productData = ['@context' => 'https://schema.org', '@type' => 'Product'];
+        $productData['name']        = $name;
+        $productData['url']         = $productUrl;
+        $productData['sameAs']      = $graphUrl;
+        if (!empty($imageUrls)) {
+            $productData['image'] = count($imageUrls) === 1 ? $imageUrls[0] : $imageUrls;
+        }
+        if ($description !== '') {
+            $productData['description'] = $description;
+        }
+        $productData['sku'] = $sku;
+        if ($gtin !== '')    { $productData['gtin']  = $gtin; }
+        if ($mpn !== '')     { $productData['mpn']   = $mpn; }
+        if ($brandName !== '') {
+            $productData['brand'] = ['@type' => 'Brand', 'name' => $brandName];
+        }
+        if (!empty($variesBy)) {
+            $productData['variesBy'] = $variesBy;
+        }
+        $productData['offers'] = $offers;
+        if ($rating !== null) {
+            $productData['aggregateRating'] = $rating;
+        }
 
         $out .= "<!-- AlloIA AI-Optimized Product Data -->\n";
         $out .= '<link rel="alternate" type="application/json" href="' . htmlspecialchars($graphUrl, ENT_QUOTES, 'UTF-8') . '" title="AI-Optimized Product Data">' . "\n";
