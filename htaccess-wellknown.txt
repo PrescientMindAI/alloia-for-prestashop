@@ -1,0 +1,8 @@
+# AlloIA MCP Well-Known Rewrite Rule
+# Add this rule to the root .htaccess of your PrestaShop installation
+# (after the existing PrestaShop rewrite rules, before the final RewriteRule):
+#
+# RewriteRule ^\.well-known/mcp\.json$ /index.php?fc=module&module=alloiaprestashop&controller=mcp&action=wellknown [L,QSA]
+#
+# This maps GET /.well-known/mcp.json → AlloiaMcpModuleFrontController (action=wellknown)
+# and returns the standard MCP capabilities JSON.
