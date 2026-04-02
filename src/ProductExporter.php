@@ -118,16 +118,26 @@ class ProductExporter
             ];
         }
 
-        try {
-            $response = $client->bulkIngest($payloads, $domain);
-        } catch (Exception $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
+        $batches = array_chunk($payloads, 50);
+        $created = 0;
+        $updated = 0;
+        $failed = 0;
+
+        foreach ($batches as $batchIndex => $batch) {
+            try {
+                $response = $client->bulkIngest($batch, $domain);
+                $data = isset($response['data']) ? $response['data'] : [];
+                $created += isset($data['products_created']) ? (int) $data['products_created'] : 0;
+                $updated += isset($data['products_updated']) ? (int) $data['products_updated'] : 0;
+                $failed  += isset($data['products_failed'])  ? (int) $data['products_failed']  : 0;
+            } catch (Exception $e) {
+                $failed += count($batch);
+            }
+            if ($batchIndex < count($batches) - 1) {
+                sleep(1);
+            }
         }
 
-        $data = isset($response['data']) ? $response['data'] : [];
-        $created = isset($data['products_created']) ? (int) $data['products_created'] : 0;
-        $updated = isset($data['products_updated']) ? (int) $data['products_updated'] : 0;
-        $failed = isset($data['products_failed']) ? (int) $data['products_failed'] : 0;
         $processed = $created + $updated + $failed;
 
         return [
