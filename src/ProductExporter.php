@@ -122,6 +122,7 @@ class ProductExporter
         $created = 0;
         $updated = 0;
         $failed = 0;
+        $lastError = '';
 
         foreach ($batches as $batchIndex => $batch) {
             try {
@@ -132,6 +133,7 @@ class ProductExporter
                 $failed  += isset($data['products_failed'])  ? (int) $data['products_failed']  : 0;
             } catch (Exception $e) {
                 $failed += count($batch);
+                $lastError = $e->getMessage();
             }
             if ($batchIndex < count($batches) - 1) {
                 sleep(1);
@@ -140,7 +142,7 @@ class ProductExporter
 
         $processed = $created + $updated + $failed;
 
-        return [
+        $result = [
             'success' => true,
             'message' => $this->module->l('Sync completed.', 'ProductExporter'),
             'products_processed' => $processed,
@@ -151,6 +153,10 @@ class ProductExporter
             'products_sent' => $productsSent,
             'products_ignored' => $productsIgnored,
         ];
+        if ($lastError !== '') {
+            $result['last_error'] = $lastError;
+        }
+        return $result;
     }
 
     /**

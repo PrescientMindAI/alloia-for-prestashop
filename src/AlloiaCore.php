@@ -64,7 +64,8 @@ class AlloiaCore
         $out .= '<link rel="mcp" href="/module/alloiaprestashop/mcp" type="application/json">' . "\n";
 
         // --- Sitemap link: inject on every page ---
-        $sitemapUrl = 'https://www.alloia.io/sitemap.xml?domain=' . rawurlencode($domain);
+        $origin = AlloiaPrestashop::getBaseOrigin();
+        $sitemapUrl = $origin . '/sitemap.xml?domain=' . rawurlencode($domain);
         $out .= "\n" . '<link rel="sitemap" type="application/xml" href="' . htmlspecialchars($sitemapUrl, ENT_QUOTES, 'UTF-8') . '">' . "\n";
 
         // --- Product-specific tags: only on product pages ---
@@ -90,7 +91,7 @@ class AlloiaCore
         }
         $slug    = $linkRewrite ?: ('product-' . $idProduct);
         $langIso = $this->context->language->iso_code ?: 'en';
-        $graphUrl = 'https://www.alloia.io/product/' . rawurlencode($langIso) . '/' . rawurlencode($slug) . '?domain=' . rawurlencode($domain);
+        $graphUrl = $origin . '/product/' . rawurlencode($langIso) . '/' . rawurlencode($slug) . '?domain=' . rawurlencode($domain);
 
         $productUrl = $this->context->link->getProductLink($product);
         $shopName   = Configuration::get('PS_SHOP_NAME') ?: 'Shop';
@@ -240,6 +241,7 @@ class AlloiaCore
         }
 
         $apiKeyJs = addslashes($apiKey);
+        $analyticsUrl = addslashes(AlloiaPrestashop::getApiBaseUrl() . '/analytics/human-visit');
 
         return <<<HTML
 <script>
@@ -257,7 +259,7 @@ class AlloiaCore
 
   if (!utmDetected && !knownRef) return;
 
-  fetch('https://www.alloia.io/api/v1/analytics/human-visit', {
+  fetch('{$analyticsUrl}', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer {$apiKeyJs}', 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -282,7 +284,8 @@ HTML;
     public function hookActionAdminMetaBeforeWriteRobotsFile(array $params)
     {
         $domain = $this->getShopDomain();
-        $sitemapUrl = 'https://www.alloia.io/sitemap.xml?domain=' . rawurlencode($domain);
+        $origin = AlloiaPrestashop::getBaseOrigin();
+        $sitemapUrl = $origin . '/sitemap.xml?domain=' . rawurlencode($domain);
 
         // $params['content'] is an array of lines passed by reference
         if (isset($params['content']) && is_array($params['content'])) {
@@ -340,7 +343,7 @@ HTML;
             'metadata'       => [],
         ]);
 
-        $ch = curl_init('https://www.alloia.io/api/v1/analytics/site-visit');
+        $ch = curl_init(AlloiaPrestashop::getApiBaseUrl() . '/analytics/site-visit');
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $payload,

@@ -20,6 +20,7 @@ require_once dirname(__FILE__) . '/src/AlloiaUpdater.php';
 class AlloiaPrestashop extends Module
 {
     const CONFIG_API_KEY = 'ALLOIA_API_KEY';
+    const CONFIG_API_URL = 'ALLOIA_API_URL';
     const CONFIG_AI_META_ENABLED = 'ALLOIA_AI_META_ENABLED';
     const CONFIG_LAST_SYNC_DATE = 'ALLOIA_LAST_SYNC_DATE';
     const CONFIG_LAST_SYNC_TOTAL = 'ALLOIA_LAST_SYNC_TOTAL';
@@ -68,6 +69,7 @@ class AlloiaPrestashop extends Module
         }
 
         Configuration::updateValue(self::CONFIG_API_KEY, '');
+        Configuration::updateValue(self::CONFIG_API_URL, '');
         Configuration::updateValue(self::CONFIG_AI_META_ENABLED, true);
 
         $this->registerHook('displayHeader');
@@ -89,6 +91,7 @@ class AlloiaPrestashop extends Module
     public function uninstall()
     {
         Configuration::deleteByName(self::CONFIG_API_KEY);
+        Configuration::deleteByName(self::CONFIG_API_URL);
         Configuration::deleteByName(self::CONFIG_AI_META_ENABLED);
         $this->uninstallTab();
         return parent::uninstall();
@@ -164,7 +167,9 @@ class AlloiaPrestashop extends Module
         }
         if (Tools::isSubmit('submitAlloiaConfig')) {
             $apiKey = (string) Tools::getValue('ALLOIA_API_KEY');
+            $apiUrl = (string) Tools::getValue('ALLOIA_API_URL');
             Configuration::updateValue(self::CONFIG_API_KEY, $apiKey);
+            Configuration::updateValue(self::CONFIG_API_URL, trim($apiUrl));
             Configuration::updateValue(self::CONFIG_AI_META_ENABLED, (bool) Tools::getValue('ALLOIA_AI_META_ENABLED'));
             $output .= $this->displayConfirmation($this->l('Settings updated.'));
         }
@@ -214,6 +219,7 @@ class AlloiaPrestashop extends Module
         $helper->tpl_vars = [
             'fields_value' => [
                 'ALLOIA_API_KEY' => Configuration::get(self::CONFIG_API_KEY),
+                'ALLOIA_API_URL' => Configuration::get(self::CONFIG_API_URL),
                 'ALLOIA_AI_META_ENABLED' => (bool) Configuration::get(self::CONFIG_AI_META_ENABLED),
             ],
         ];
@@ -231,6 +237,13 @@ class AlloiaPrestashop extends Module
                             'label' => $this->l('API Key'),
                             'name' => 'ALLOIA_API_KEY',
                             'desc' => $this->l('Enter your AlloIA API key (prefix ak_). Get it at alloia.ai'),
+                            'autocomplete' => false,
+                        ],
+                        [
+                            'type' => 'text',
+                            'label' => $this->l('API URL (optional)'),
+                            'name' => 'ALLOIA_API_URL',
+                            'desc' => $this->l('Override the AlloIA API endpoint. Leave empty for production (alloia.io). Example: https://alloia-api.alebox.xyz/api'),
                             'autocomplete' => false,
                         ],
                         [
@@ -404,10 +417,44 @@ class AlloiaPrestashop extends Module
     }
 
     /**
-     * Base URL for AlloIA API
+     * Base URL for AlloIA API.
+     * Reads from Configuration (set via admin or env); falls back to production URL.
      */
     public static function getApiBaseUrl()
     {
+        // 1. Check PS Configuration (admin form)
+        $custom = Configuration::get(self::CONFIG_API_URL);
+        // 2. Fall back to env var (set by cdk8s / Kubernetes)
+        if (empty($custom)) {
+            $custom = getenv('ALLOIA_API_URL') ?: '';
+        }
+        if (!empty($custom)) {
+            $custom = rtrim($custom, '/');
+            // Ensure scheme is present so curl can resolve the host
+            if (!preg_match('#^https?://#i', $custom)) {
+                $custom = 'https://' . $custom;
+            }
+            // Ensure the path ends with /api/v1
+            if (!preg_match('#/api(/v\d+)?$#', $custom)) {
+                $custom .= '/api';
+            }
+            if (!preg_match('#/v\d+$#', $custom)) {
+                $custom .= '/v1';
+            }
+            return $custom;
+        }
         return 'https://www.alloia.io/api/v1';
+    }
+
+    /**
+     * Base origin for AlloIA platform (sitemap, product graph links).
+     * Derived from the API URL — strips /api/v1 suffix.
+     */
+    public static function getBaseOrigin()
+    {
+        $apiUrl = self::getApiBaseUrl();
+        // Strip /api/v1 to get the origin
+        $origin = preg_replace('#/api(/v\d+)?$#', '', $apiUrl);
+        return $origin ?: 'https://www.alloia.io';
     }
 }

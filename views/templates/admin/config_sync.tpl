@@ -107,7 +107,8 @@
                 if (data.products_ignored > 0) msg += ' ' + data.products_ignored + ' ignored.';
                 if (data.products_failed > 0) msg += ' ' + data.products_failed + ' failed.';
               }
-              setStatus(syncStatus, msg, false);
+              if (data.last_error) msg += ' Error: ' + data.last_error;
+              setStatus(syncStatus, msg, data.products_failed > 0);
               if (data.total_products != null) updateLastSyncFromResponse(data);
             } else {
               setStatus(syncStatus, data.error || 'Sync failed.', true);
