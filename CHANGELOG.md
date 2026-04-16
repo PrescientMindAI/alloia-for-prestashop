@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.6] - 2026-04-16
+
+### Removed
+- Subscription validation: plugin now validates API key only; no subscription status check is performed
+
 ## [1.1.1] - 2026-04-16
 
 ### Fixed
