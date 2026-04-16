@@ -182,7 +182,6 @@ class AlloiaCore
         $productData = ['@context' => 'https://schema.org', '@type' => 'Product'];
         $productData['name']        = $name;
         $productData['url']         = $productUrl;
-        $productData['sameAs']      = $graphUrl;
         if (!empty($imageUrls)) {
             $productData['image'] = count($imageUrls) === 1 ? $imageUrls[0] : $imageUrls;
         }
