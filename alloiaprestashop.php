@@ -20,6 +20,7 @@ require_once dirname(__FILE__) . '/src/AlloiaUpdater.php';
 class AlloiaPrestashop extends Module
 {
     const CONFIG_API_KEY = 'ALLOIA_API_KEY';
+    const CONFIG_API_URL = 'ALLOIA_API_URL';
     const CONFIG_AI_META_ENABLED = 'ALLOIA_AI_META_ENABLED';
     const CONFIG_LAST_SYNC_DATE = 'ALLOIA_LAST_SYNC_DATE';
     const CONFIG_LAST_SYNC_TOTAL = 'ALLOIA_LAST_SYNC_TOTAL';
@@ -89,6 +90,7 @@ class AlloiaPrestashop extends Module
     public function uninstall()
     {
         Configuration::deleteByName(self::CONFIG_API_KEY);
+        Configuration::deleteByName(self::CONFIG_API_URL);
         Configuration::deleteByName(self::CONFIG_AI_META_ENABLED);
         $this->uninstallTab();
         return parent::uninstall();
@@ -404,10 +406,22 @@ class AlloiaPrestashop extends Module
     }
 
     /**
-     * Base URL for AlloIA API
+     * Base URL for AlloIA API.
      */
     public static function getApiBaseUrl()
     {
-        return 'https://www.alloia.io/api/v1';
+        return 'https://api.alloia.ai/api/v1';
+    }
+
+    /**
+     * Base origin for AlloIA platform (sitemap, product graph links).
+     * Derived from the API URL — strips /api/v1 suffix.
+     */
+    public static function getBaseOrigin()
+    {
+        $apiUrl = self::getApiBaseUrl();
+        // Strip /api/v1 to get the origin
+        $origin = preg_replace('#/api(/v\d+)?$#', '', $apiUrl);
+        return $origin ?: 'https://api.alloia.ai';
     }
 }

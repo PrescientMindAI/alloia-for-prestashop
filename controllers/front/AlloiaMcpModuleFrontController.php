@@ -161,7 +161,7 @@ class AlloiaMcpModuleFrontController extends ModuleFrontController
 
     private function proxyToolCall(string $tool, array $arguments): void
     {
-        $baseUrl  = (string) Configuration::get('ALLOIA_API_URL', 'https://alloia.io');
+        $baseUrl  = AlloiaPrestashop::getApiBaseUrl();
         $mapEntry = self::TOOL_MAP[$tool];
         $path     = $mapEntry['path'];
 
