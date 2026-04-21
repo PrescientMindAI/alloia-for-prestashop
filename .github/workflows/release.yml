@@ -32,11 +32,13 @@ jobs:
 
       - name: Build zip
         run: |
-          mkdir -p /tmp/alloiaprestashop
-          cp -r . /tmp/alloiaprestashop/alloiaprestashop
-          # Remove git metadata from the zip
-          rm -rf /tmp/alloiaprestashop/alloiaprestashop/.git
-          cd /tmp
+          # Use a neutral parent dir (/tmp/build) so the ZIP contains a single
+          # alloiaprestashop/ folder at the root — required by PrestaShop installer.
+          # Using /tmp/alloiaprestashop as parent would produce alloiaprestashop/alloiaprestashop/.
+          mkdir -p /tmp/build/alloiaprestashop
+          cp -r . /tmp/build/alloiaprestashop
+          rm -rf /tmp/build/alloiaprestashop/.git
+          cd /tmp/build
           zip -r $GITHUB_WORKSPACE/alloiaprestashop.zip alloiaprestashop
           ls -lh $GITHUB_WORKSPACE/alloiaprestashop.zip
 
