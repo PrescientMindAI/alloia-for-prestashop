@@ -68,6 +68,25 @@ class ProductExporter
             return ['success' => false, 'error' => $this->module->l('API key not configured.', 'ProductExporter')];
         }
 
+        // 🎭 DEMO MODE: return mock success without hitting the API
+        if ($apiKey === 'demo_alloia_showcase_2026_f8a3b9c1d4e2') {
+            $idLang = (int) Configuration::get('PS_LANG_DEFAULT');
+            $allProducts = Product::getProducts($idLang, 0, 10000, 'id_product', 'ASC', false, false);
+            $totalProducts = is_array($allProducts) ? count($allProducts) : 0;
+            return [
+                'success' => true,
+                'message' => $this->module->l('Demo mode: sync simulated successfully.', 'ProductExporter'),
+                'products_processed' => $totalProducts,
+                'products_created' => $totalProducts,
+                'products_updated' => 0,
+                'products_failed' => 0,
+                'total_products' => $totalProducts,
+                'products_sent' => $totalProducts,
+                'products_ignored' => 0,
+                'isDemo' => true,
+            ];
+        }
+
         $client = new AlloiaApiClient($apiKey);
         $domainValidation = $client->validateDomainForSync();
         if (empty($domainValidation['valid'])) {
