@@ -84,10 +84,10 @@ class AlloiaApiClient
     {
         $data = [
             'products' => $products,
-            'domain' => $domain,
         ];
         $headers = [
             'X-Platform' => 'prestashop',
+            'X-Alloia-Domain' => strtolower(Context::getContext()->shop->domain),
         ];
         return $this->request('/ingest', 'POST', $data, $headers);
     }
@@ -150,9 +150,7 @@ class AlloiaApiClient
 
     private function getShopDomain()
     {
-        $url = Configuration::get('PS_SHOP_URL') ?: (Tools::getShopDomain(true) . __PS_BASE_URI__);
-        $parsed = parse_url($url);
-        return isset($parsed['host']) ? $parsed['host'] : '';
+        return strtolower(Context::getContext()->shop->domain);
     }
 
     private function l($msg)
