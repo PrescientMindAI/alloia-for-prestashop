@@ -240,6 +240,7 @@ class AlloiaCore
         }
 
         $apiKeyJs = addslashes($apiKey);
+        $shopDomainJs = addslashes(strtolower(Context::getContext()->shop->domain));
         $analyticsUrl = addslashes(AlloiaPrestashop::getApiBaseUrl() . '/analytics/human-visit');
 
         return <<<HTML
@@ -260,7 +261,7 @@ class AlloiaCore
 
   fetch('{$analyticsUrl}', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer {$apiKeyJs}', 'Content-Type': 'application/json' },
+    headers: { 'Authorization': 'Bearer {$apiKeyJs}', 'Content-Type': 'application/json', 'X-Alloia-Domain': '{$shopDomainJs}' },
     body: JSON.stringify({
       referrer_domain: refHost,
       utm_detected: utmDetected,
@@ -350,6 +351,7 @@ HTML;
                 'Authorization: Bearer ' . $apiKey,
                 'Content-Type: application/json',
                 'Content-Length: ' . strlen($payload),
+                'X-Alloia-Domain: ' . strtolower(Context::getContext()->shop->domain),
             ],
             CURLOPT_TIMEOUT        => 1,
             CURLOPT_RETURNTRANSFER => false,
