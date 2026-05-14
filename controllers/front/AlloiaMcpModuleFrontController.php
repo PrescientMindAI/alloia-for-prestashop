@@ -14,7 +14,8 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-class AlloiaMcpModuleFrontController extends ModuleFrontController
+// phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+class AlloiaprestashopMcpModuleFrontController extends ModuleFrontController
 {
     private const TOOL_MAP = [
         'search_products'  => ['method' => 'POST', 'path' => '/api/llm/search'],
@@ -35,7 +36,7 @@ class AlloiaMcpModuleFrontController extends ModuleFrontController
     {
         parent::initContent();
 
-        $action = Tools::getValue('action', 'tools');
+        $action = Tools::getValue('action', 'wellknown');
 
         switch ($action) {
             case 'tools':
@@ -61,17 +62,11 @@ class AlloiaMcpModuleFrontController extends ModuleFrontController
 
     private function handleToolsAction(): void
     {
-        if (empty($this->getApiKey())) {
-            $this->errorResponse('Module not configured');
-        }
         $this->jsonResponse(['tools' => $this->getToolsDefinition()]);
     }
 
     private function handleResourcesAction(): void
     {
-        if (empty($this->getApiKey())) {
-            $this->errorResponse('Module not configured');
-        }
         $this->jsonResponse([
             'resources' => [
                 ['id' => 'catalog',    'description' => 'Full product catalog with AI-enriched data'],
@@ -161,7 +156,7 @@ class AlloiaMcpModuleFrontController extends ModuleFrontController
 
     private function proxyToolCall(string $tool, array $arguments): void
     {
-        $baseUrl  = AlloiaPrestashop::getApiBaseUrl();
+        $baseUrl  = (string) Configuration::get('ALLOIA_API_URL', 'https://api.alloia.io');
         $mapEntry = self::TOOL_MAP[$tool];
         $path     = $mapEntry['path'];
 

@@ -5,7 +5,7 @@
  * @author    AlloIA Team
  * @copyright 2025 AlloIA
  * @license   MIT
- * @version   1.1.1
+ * @version   1.1.0
  */
 
 if (!defined('_PS_VERSION_')) {
@@ -15,12 +15,10 @@ if (!defined('_PS_VERSION_')) {
 require_once dirname(__FILE__) . '/src/AlloiaApiClient.php';
 require_once dirname(__FILE__) . '/src/ProductExporter.php';
 require_once dirname(__FILE__) . '/src/AlloiaCore.php';
-require_once dirname(__FILE__) . '/src/AlloiaUpdater.php';
 
 class AlloiaPrestashop extends Module
 {
     const CONFIG_API_KEY = 'ALLOIA_API_KEY';
-    const CONFIG_API_URL = 'ALLOIA_API_URL';
     const CONFIG_AI_META_ENABLED = 'ALLOIA_AI_META_ENABLED';
     const CONFIG_LAST_SYNC_DATE = 'ALLOIA_LAST_SYNC_DATE';
     const CONFIG_LAST_SYNC_TOTAL = 'ALLOIA_LAST_SYNC_TOTAL';
@@ -44,7 +42,7 @@ class AlloiaPrestashop extends Module
     {
         $this->name = 'alloiaprestashop';
         $this->tab = 'administration';
-        $this->version = '1.1.1';
+        $this->version = '1.1.0';
         $this->author = 'AlloIA Team';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [
@@ -90,7 +88,6 @@ class AlloiaPrestashop extends Module
     public function uninstall()
     {
         Configuration::deleteByName(self::CONFIG_API_KEY);
-        Configuration::deleteByName(self::CONFIG_API_URL);
         Configuration::deleteByName(self::CONFIG_AI_META_ENABLED);
         $this->uninstallTab();
         return parent::uninstall();
@@ -142,22 +139,6 @@ class AlloiaPrestashop extends Module
         }
 
         $output = '';
-
-        // Check for available plugin update (cached 24 h)
-        $updater = new AlloiaUpdater();
-        if ($updater->isUpdateAvailable($this->version)) {
-            $latestVersion = $updater->getLatestVersion();
-            $releaseUrl    = $updater->getReleaseUrl() ?: 'https://github.com/PrescientMindAI/alloia-for-prestashop/releases/latest';
-            $output .= $this->displayInformation(
-                sprintf(
-                    $this->l('A new version of AlloIA is available: %s. %s'),
-                    '<strong>' . htmlspecialchars($latestVersion) . '</strong>',
-                    '<a href="' . htmlspecialchars($releaseUrl) . '" target="_blank" rel="noopener">'
-                    . $this->l('Download update') . '</a>'
-                )
-            );
-        }
-
         // Warn if back office is not served over HTTPS (form would submit over unsecured connection)
         if (!$this->isSecureConnection()) {
             $output .= $this->displayWarning(
@@ -313,6 +294,12 @@ class AlloiaPrestashop extends Module
         return $core->hookDisplayHeader($params);
     }
 
+    public function hookDisplayFooter(array $params)
+    {
+        $core = new AlloiaCore($this);
+        return $core->hookDisplayFooter($params);
+    }
+
     public function hookActionAdminMetaBeforeWriteRobotsFile(array $params)
     {
         $core = new AlloiaCore($this);
@@ -406,22 +393,10 @@ class AlloiaPrestashop extends Module
     }
 
     /**
-     * Base URL for AlloIA API.
+     * Base URL for AlloIA API
      */
     public static function getApiBaseUrl()
     {
-        return 'https://api.alloia.ai/api/v1';
-    }
-
-    /**
-     * Base origin for AlloIA platform (sitemap, product graph links).
-     * Derived from the API URL — strips /api/v1 suffix.
-     */
-    public static function getBaseOrigin()
-    {
-        $apiUrl = self::getApiBaseUrl();
-        // Strip /api/v1 to get the origin
-        $origin = preg_replace('#/api(/v\d+)?$#', '', $apiUrl);
-        return $origin ?: 'https://api.alloia.ai';
+        return 'https://www.alloia.io/api/v1';
     }
 }
