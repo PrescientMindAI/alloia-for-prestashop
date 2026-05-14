@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.2] - 2026-05-14
+
+### Fixed
+- MCP endpoint `/module/alloiaprestashop/mcp` was returning a PrestaShop 404 page — root cause was wrong PHP class name (`AlloiaMcpModuleFrontController` → `AlloiaprestashopMcpModuleFrontController` per PS naming convention)
+- Bare MCP link now returns the capabilities manifest without requiring an API key (default action changed from `tools` to `wellknown`)
+- Tool and resource discovery (`?action=tools`, `?action=resources`) no longer require an API key — only proxied calls do
+- Fixed MCP proxy default URL from `alloia.io` to `api.alloia.io`
+- Human-referral JS snippet (`hookDisplayFooter`) was never injected — added missing delegation to `AlloiaCore`
+
 ## [1.1.1] - 2026-04-16
 
 ### Fixed
