@@ -36,7 +36,17 @@ class AlloiaCore
         if ($ua !== '' && $this->isAiBot($ua)) {
             $controller = Tools::getValue('controller');
             if (in_array($controller, ['cart', 'order', 'orderopc'], true)) {
-                $this->emitBotEvent('checkout_click', Tools::getHttpHost(true) . $_SERVER['REQUEST_URI']);
+                // Resolve product SKU from add-to-cart URLs (e.g. /panier?add=1&id_product=6429).
+                // Enables per-product attribution of AI Commerce events in the dashboard.
+                $checkoutSku = '';
+                $urlProductId = (int) Tools::getValue('id_product');
+                if ($urlProductId > 0) {
+                    $product = new Product($urlProductId, false, (int) $this->context->language->id);
+                    if (Validate::isLoadedObject($product)) {
+                        $checkoutSku = $product->reference ?: '';
+                    }
+                }
+                $this->emitBotEvent('checkout_click', Tools::getHttpHost(true) . $_SERVER['REQUEST_URI'], $checkoutSku);
             } else {
                 // Determine product SKU when on a product page
                 $productSku = '';
@@ -64,8 +74,7 @@ class AlloiaCore
         $out .= '<link rel="mcp" href="/module/alloiaprestashop/mcp" type="application/json">' . "\n";
 
         // --- Sitemap link: inject on every page ---
-        $origin = AlloiaPrestashop::getBaseOrigin();
-        $sitemapUrl = $origin . '/sitemap.xml?domain=' . rawurlencode($domain);
+        $sitemapUrl = 'https://www.alloia.io/sitemap.xml?domain=' . rawurlencode($domain);
         $out .= "\n" . '<link rel="sitemap" type="application/xml" href="' . htmlspecialchars($sitemapUrl, ENT_QUOTES, 'UTF-8') . '">' . "\n";
 
         // --- Product-specific tags: only on product pages ---
@@ -89,119 +98,40 @@ class AlloiaCore
         if (is_array($linkRewrite)) {
             $linkRewrite = isset($linkRewrite[$idLang]) ? $linkRewrite[$idLang] : reset($linkRewrite);
         }
-        $slug    = $linkRewrite ?: ('product-' . $idProduct);
-        $langIso = $this->context->language->iso_code ?: 'en';
-        $graphUrl = $origin . '/product/' . rawurlencode($langIso) . '/' . rawurlencode($slug) . '?domain=' . rawurlencode($domain);
+        $slug = $linkRewrite ?: ('product-' . $idProduct);
+        $graphUrl = 'https://www.alloia.io/product/' . rawurlencode($slug) . '?domain=' . rawurlencode($domain);
 
         $productUrl = $this->context->link->getProductLink($product);
-        $shopName   = Configuration::get('PS_SHOP_NAME') ?: 'Shop';
-        $name        = $product->name;
+        $name = $product->name;
         $description = strip_tags($product->description_short ?: $product->description);
-        $sku         = $product->reference ?: ('presta-' . $idProduct);
-        $basePrice   = (float) $product->getPrice(true, null, 2);
-        $currency    = $this->context->currency->iso_code ?: 'EUR';
-        $priceUntil  = date('Y-m-d', strtotime('+1 year'));
-
-        // --- Image ---
-        $imageUrls = [];
-        $allImages = Image::getImages($idLang, $idProduct);
-        foreach ($allImages as $img) {
-            $imgUrl = $this->context->link->getImageLink($linkRewrite, $img['id_image'], 'large_default');
-            if (strpos($imgUrl, 'http') !== 0) {
-                $imgUrl = (Configuration::get('PS_SSL_ENABLED') ? 'https' : 'http') . '://' . $imgUrl;
-            }
-            $imageUrls[] = $imgUrl;
-        }
-
-        // --- Brand ---
-        $brandName = '';
-        if (!empty($product->id_manufacturer)) {
-            $brandName = (string) Manufacturer::getNameById((int) $product->id_manufacturer);
-        }
-
-        // --- GTIN / MPN ---
-        $gtin = '';
-        if (!empty($product->ean13))  { $gtin = $product->ean13; }
-        elseif (!empty($product->isbn))  { $gtin = $product->isbn; }
-        elseif (!empty($product->upc))   { $gtin = $product->upc; }
-        $mpn = !empty($product->mpn) ? $product->mpn : '';
-
-        // --- Offers: one per combination, or single offer ---
-        $combinations = $product->getAttributeCombinations($idLang);
-        if (!empty($combinations)) {
-            $seen   = [];
-            $offers = [];
-            foreach ($combinations as $combo) {
-                $idAttr = (int) $combo['id_product_attribute'];
-                if (isset($seen[$idAttr])) {
-                    continue;
-                }
-                $seen[$idAttr] = true;
-                $comboPrice = (float) $product->getPrice(true, $idAttr, 2);
-                $comboStock = (int) StockAvailable::getQuantityAvailableByProduct($idProduct, $idAttr) > 0;
-                $offer = [
-                    '@type'           => 'Offer',
-                    'url'             => $productUrl,
-                    'priceCurrency'   => $currency,
-                    'price'           => $comboPrice,
-                    'availability'    => $comboStock
-                        ? 'https://schema.org/InStock'
-                        : 'https://schema.org/OutOfStock',
-                    'priceValidUntil' => $priceUntil,
-                    'seller'          => ['@type' => 'Organization', 'name' => $shopName],
-                ];
-                if (!empty($combo['reference'])) { $offer['sku']    = $combo['reference']; }
-                if (!empty($combo['ean13']))      { $offer['gtin13'] = $combo['ean13']; }
-                if (!empty($combo['mpn']))        { $offer['mpn']    = $combo['mpn']; }
-                $offers[] = $offer;
-            }
-            // variesBy: collect unique attribute group names
-            $variesBy = [];
-            foreach ($combinations as $combo) {
-                if (!empty($combo['group_name']) && !in_array($combo['group_name'], $variesBy, true)) {
-                    $variesBy[] = $combo['group_name'];
-                }
-            }
-        } else {
-            $inStock = (int) StockAvailable::getQuantityAvailableByProduct($idProduct) > 0;
-            $offers  = [
-                '@type'           => 'Offer',
-                'url'             => $productUrl,
-                'priceCurrency'   => $currency,
-                'price'           => $basePrice,
-                'availability'    => $inStock
-                    ? 'https://schema.org/InStock'
-                    : 'https://schema.org/OutOfStock',
-                'priceValidUntil' => $priceUntil,
-                'seller'          => ['@type' => 'Organization', 'name' => $shopName],
-            ];
-            $variesBy = [];
-        }
+        $sku = $product->reference ?: ('presta-' . $idProduct);
+        $price = (float) $product->getPrice(true, null, 2);
+        $currency = $this->context->currency->iso_code ?: 'EUR';
+        $inStock = (int) StockAvailable::getQuantityAvailableByProduct($idProduct) > 0;
 
         $rating = $this->getProductRating($idProduct);
-
-        $productData = ['@context' => 'https://schema.org', '@type' => 'Product'];
-        $productData['name']        = $name;
-        $productData['url']         = $productUrl;
-        if (!empty($imageUrls)) {
-            $productData['image'] = count($imageUrls) === 1 ? $imageUrls[0] : $imageUrls;
-        }
-        if ($description !== '') {
-            $productData['description'] = $description;
-        }
-        $productData['sku'] = $sku;
-        if ($gtin !== '')    { $productData['gtin']  = $gtin; }
-        if ($mpn !== '')     { $productData['mpn']   = $mpn; }
-        if ($brandName !== '') {
-            $productData['brand'] = ['@type' => 'Brand', 'name' => $brandName];
-        }
-        if (!empty($variesBy)) {
-            $productData['variesBy'] = $variesBy;
-        }
-        $productData['offers'] = $offers;
-        if ($rating !== null) {
-            $productData['aggregateRating'] = $rating;
-        }
+        $productData = [
+            '@context' => 'https://schema.org',
+            '@type'    => 'Product',
+            'url'      => $productUrl,
+            'sameAs'   => $graphUrl,
+            'name'     => $name,
+            'sku'      => $sku,
+            'description' => $description,
+            'offers'   => [
+                '@type'          => 'Offer',
+                'url'            => $productUrl,
+                'priceCurrency'  => $currency,
+                'price'          => $price,
+                'availability'   => $inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+                'priceValidUntil' => date('Y-m-d', strtotime('+1 year')),
+                'seller'         => [
+                    '@type' => 'Organization',
+                    'name'  => Configuration::get('PS_SHOP_NAME') ?: 'Shop',
+                ],
+            ],
+            ...($rating !== null ? ['aggregateRating' => $rating] : []),
+        ];
 
         $out .= "<!-- AlloIA AI-Optimized Product Data -->\n";
         $out .= '<link rel="alternate" type="application/json" href="' . htmlspecialchars($graphUrl, ENT_QUOTES, 'UTF-8') . '" title="AI-Optimized Product Data">' . "\n";
@@ -241,7 +171,6 @@ class AlloiaCore
 
         $apiKeyJs = addslashes($apiKey);
         $shopDomainJs = addslashes(strtolower(Context::getContext()->shop->domain));
-        $analyticsUrl = addslashes(AlloiaPrestashop::getApiBaseUrl() . '/analytics/human-visit');
 
         return <<<HTML
 <script>
@@ -259,7 +188,7 @@ class AlloiaCore
 
   if (!utmDetected && !knownRef) return;
 
-  fetch('{$analyticsUrl}', {
+  fetch('https://www.alloia.io/api/v1/analytics/human-visit', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer {$apiKeyJs}', 'Content-Type': 'application/json', 'X-Alloia-Domain': '{$shopDomainJs}' },
     body: JSON.stringify({
@@ -284,8 +213,7 @@ HTML;
     public function hookActionAdminMetaBeforeWriteRobotsFile(array $params)
     {
         $domain = $this->getShopDomain();
-        $origin = AlloiaPrestashop::getBaseOrigin();
-        $sitemapUrl = $origin . '/sitemap.xml?domain=' . rawurlencode($domain);
+        $sitemapUrl = 'https://www.alloia.io/sitemap.xml?domain=' . rawurlencode($domain);
 
         // $params['content'] is an array of lines passed by reference
         if (isset($params['content']) && is_array($params['content'])) {
@@ -343,7 +271,8 @@ HTML;
             'metadata'       => [],
         ]);
 
-        $ch = curl_init(AlloiaPrestashop::getApiBaseUrl() . '/analytics/site-visit');
+        $shopDomain = strtolower(Context::getContext()->shop->domain);
+        $ch = curl_init('https://www.alloia.io/api/v1/analytics/site-visit');
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $payload,
@@ -351,13 +280,26 @@ HTML;
                 'Authorization: Bearer ' . $apiKey,
                 'Content-Type: application/json',
                 'Content-Length: ' . strlen($payload),
-                'X-Alloia-Domain: ' . strtolower(Context::getContext()->shop->domain),
+                'X-Alloia-Domain: ' . $shopDomain,
             ],
-            CURLOPT_TIMEOUT        => 1,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_NOSIGNAL       => 1,
             CURLOPT_RETURNTRANSFER => false,
             CURLOPT_SSL_VERIFYPEER => true,
         ]);
+
         curl_exec($ch);
+
+        if (curl_errno($ch)) {
+            PrestaShopLogger::addLog(
+                '[AlloIA] emitBotEvent failed: ' . curl_error($ch) . ' (event=' . $eventType . ')',
+                2,
+                null,
+                'AlloiaCore'
+            );
+        }
+
         curl_close($ch);
     }
 
@@ -394,17 +336,10 @@ HTML;
 
     /**
      * Returns the shop's public domain (e.g. "myshop.com"), used as the ?domain= param.
+     * Uses Context::getContext()->shop->domain — hostname-only, multistore-safe per ADR-002.
      */
     private function getShopDomain()
     {
-        // Prefer HTTP_HOST from the actual request (most reliable)
-        if (!empty($_SERVER['HTTP_HOST'])) {
-            return preg_replace('/[^a-zA-Z0-9.\-]/', '', $_SERVER['HTTP_HOST']);
-        }
-
-        // Fallback: parse the configured shop URL
-        $url = Configuration::get('PS_SHOP_URL') ?: (Tools::getShopDomain(true) . __PS_BASE_URI__);
-        $parsed = parse_url($url);
-        return isset($parsed['host']) ? $parsed['host'] : '';
+        return strtolower(Context::getContext()->shop->domain);
     }
 }

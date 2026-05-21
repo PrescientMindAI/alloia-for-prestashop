@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.3] - 2026-05-21
+
+### Fixed
+- `checkout_click` events now carry the product SKU/reference when an AI bot is detected on an add-to-cart URL (e.g. `/panier?add=1&id_product=XXX`). Previously the product was unresolvable and the event was stored without a product ID, making it invisible in the per-product AI Commerce metric of the dashboard.
+
 ## [1.1.2] - 2026-05-14
 
 ### Fixed
