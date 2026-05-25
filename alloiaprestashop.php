@@ -5,7 +5,7 @@
  * @author    AlloIA Team
  * @copyright 2025 AlloIA
  * @license   MIT
- * @version   1.1.3
+ * @version   1.1.4
  */
 
 if (!defined('_PS_VERSION_')) {
@@ -14,6 +14,7 @@ if (!defined('_PS_VERSION_')) {
 
 require_once dirname(__FILE__) . '/src/AlloiaApiClient.php';
 require_once dirname(__FILE__) . '/src/ProductExporter.php';
+require_once dirname(__FILE__) . '/src/AlloiaAttribution.php';
 require_once dirname(__FILE__) . '/src/AlloiaCore.php';
 
 class AlloiaPrestashop extends Module
@@ -42,7 +43,7 @@ class AlloiaPrestashop extends Module
     {
         $this->name = 'alloiaprestashop';
         $this->tab = 'administration';
-	$this->version = '1.1.3';
+	$this->version = '1.1.4';
         $this->author = 'AlloIA Team';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = [
@@ -76,8 +77,25 @@ class AlloiaPrestashop extends Module
         $this->registerHook('actionUpdateQuantity');
         $this->registerHook('actionAdminMetaBeforeWriteRobotsFile');
         $this->registerHook('displayFooter');
+        $this->registerHook('actionValidateOrder');
+        $this->registerHook('displayOrderConfirmation');
+        $this->registerHook('actionObjectOrderAddAfter');
 
         $this->installTab();
+
+        return true;
+    }
+
+    /**
+     * Register post-purchase hooks on module upgrade (v1.1.4+).
+     */
+    public function upgrade($version): bool
+    {
+        if (version_compare($version, '1.1.4', '<')) {
+            $this->registerHook('actionValidateOrder');
+            $this->registerHook('displayOrderConfirmation');
+            $this->registerHook('actionObjectOrderAddAfter');
+        }
 
         return true;
     }
@@ -298,6 +316,27 @@ class AlloiaPrestashop extends Module
     {
         $core = new AlloiaCore($this);
         return $core->hookDisplayFooter($params);
+    }
+
+    public function hookActionValidateOrder(array $params)
+    {
+        $core = new AlloiaCore($this);
+        $core->hookActionValidateOrder($params);
+    }
+
+    public function hookDisplayOrderConfirmation(array $params)
+    {
+        $core = new AlloiaCore($this);
+        return $core->hookDisplayOrderConfirmation($params);
+    }
+
+    public function hookActionObjectOrderAddAfter(array $params)
+    {
+        if (!isset($params['object']) || !($params['object'] instanceof Order)) {
+            return;
+        }
+        $core = new AlloiaCore($this);
+        $core->hookActionObjectOrderAddAfter($params);
     }
 
     public function hookActionAdminMetaBeforeWriteRobotsFile(array $params)

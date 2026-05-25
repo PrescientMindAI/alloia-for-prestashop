@@ -73,10 +73,10 @@ class AlloiaApiClient
     }
 
     /**
-     * Bulk ingest products - POST /api/v1/ingest with X-Platform: prestashop and body.domain
+     * Bulk ingest products - POST /api/v1/ingest with X-Platform: prestashop and X-Alloia-Domain header
      *
      * @param array  $products Array of product payloads (plugin format)
-     * @param string $domain   Shop domain for validation
+     * @param string $domain   Shop domain (hostname only, lowercase)
      * @return array Decoded JSON response
      * @throws Exception On HTTP or API error
      */
@@ -87,7 +87,7 @@ class AlloiaApiClient
         ];
         $headers = [
             'X-Platform' => 'prestashop',
-            'X-Alloia-Domain' => strtolower(Context::getContext()->shop->domain),
+            'X-Alloia-Domain' => strtolower($domain),
         ];
         return $this->request('/ingest', 'POST', $data, $headers);
     }

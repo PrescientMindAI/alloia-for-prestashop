@@ -33,9 +33,11 @@ class AlloiaCore
     {
         // AI-INSIGHTS-003: emit site_visit / checkout_click for bot user-agents (fire-and-forget)
         $ua = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '';
+        $controller = Tools::getValue('controller');
+        $isCheckoutController = in_array($controller, ['cart', 'order', 'orderopc'], true);
+
         if ($ua !== '' && $this->isAiBot($ua)) {
-            $controller = Tools::getValue('controller');
-            if (in_array($controller, ['cart', 'order', 'orderopc'], true)) {
+            if ($isCheckoutController) {
                 // Resolve product SKU from add-to-cart URLs (e.g. /panier?add=1&id_product=6429).
                 // Enables per-product attribution of AI Commerce events in the dashboard.
                 $checkoutSku = '';
@@ -61,6 +63,13 @@ class AlloiaCore
                 }
                 $this->emitBotEvent('site_visit', Tools::getHttpHost(true) . $_SERVER['REQUEST_URI'], $productSku);
             }
+        } elseif ($ua !== '' && $isCheckoutController && AlloiaAttribution::isAiAttributedRequest()) {
+            $this->emitBotEvent(
+                'checkout_click',
+                Tools::getHttpHost(true) . $_SERVER['REQUEST_URI'],
+                '',
+                ['attribution' => 'human_ai']
+            );
         }
 
         if (!(bool) Configuration::get(AlloiaPrestashop::CONFIG_AI_META_ENABLED)) {
@@ -101,7 +110,7 @@ class AlloiaCore
         $slug = $linkRewrite ?: ('product-' . $idProduct);
         $graphUrl = 'https://www.alloia.io/product/' . rawurlencode($slug) . '?domain=' . rawurlencode($domain);
 
-        $productUrl = $this->context->link->getProductLink($product);
+        $productUrl = AlloiaAttribution::appendUtm($this->context->link->getProductLink($product));
         $name = $product->name;
         $description = strip_tags($product->description_short ?: $product->description);
         $sku = $product->reference ?: ('presta-' . $idProduct);
@@ -205,6 +214,90 @@ HTML;
     }
 
     /**
+     * Mark order with private BO message when checkout request was AI-attributed.
+     */
+    public function hookActionObjectOrderAddAfter(array $params): void
+    {
+        if (!AlloiaAttribution::isAiAttributedRequest()) {
+            return;
+        }
+        $order = $params['object'];
+        if (!($order instanceof Order) || !(int) $order->id) {
+            return;
+        }
+        $this->markOrderAiAttributed((int) $order->id);
+    }
+
+    /**
+     * Primary purchase emission when order is validated.
+     */
+    public function hookActionValidateOrder(array $params): void
+    {
+        if (empty($params['order']) || !($params['order'] instanceof Order)) {
+            return;
+        }
+        $order = $params['order'];
+        if (!$this->isAiAttributedOrder($order)) {
+            return;
+        }
+        $this->emitStorePurchases($order, $this->resolvePurchaseAttribution());
+    }
+
+    /**
+     * Thank-you page backup pixel (idempotent via API dedup).
+     */
+    public function hookDisplayOrderConfirmation(array $params): string
+    {
+        if (empty($params['order']) || !($params['order'] instanceof Order)) {
+            return '';
+        }
+        $order = $params['order'];
+        if (!$this->isAiAttributedOrder($order)) {
+            return '';
+        }
+
+        $apiKey = Configuration::get(AlloiaPrestashop::CONFIG_API_KEY);
+        if (empty($apiKey)) {
+            return '';
+        }
+
+        $lineItems = $this->buildOrderLineItems($order);
+        if (empty($lineItems)) {
+            return '';
+        }
+
+        $payload = [
+            'platform'    => 'PrestaShop',
+            'order_id'    => (string) $order->id,
+            'attribution' => $this->resolvePurchaseAttribution(),
+            'currency'    => $this->context->currency->iso_code ?? '',
+            'total'       => (float) $order->total_paid,
+            'line_items'  => $lineItems,
+        ];
+
+        $apiKeyJs = addslashes($apiKey);
+        $payloadJs = addslashes(json_encode($payload));
+        $shopDomainJs = addslashes($this->getShopDomain());
+
+        return <<<HTML
+<script>
+(function() {
+  fetch('https://www.alloia.io/api/v1/analytics/store-purchase', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer {$apiKeyJs}',
+      'Content-Type': 'application/json',
+      'X-Alloia-Domain': '{$shopDomainJs}'
+    },
+    body: '{$payloadJs}',
+    keepalive: true
+  }).catch(function(){});
+})();
+</script>
+HTML;
+    }
+
+    /**
      * Hook actionAdminMetaBeforeWriteRobotsFile: append AlloIA sitemap to robots.txt.
      * Fires when admin saves SEO & URLs → Generate robots.txt.
      *
@@ -255,8 +348,9 @@ HTML;
      * @param string $eventType   'site_visit' | 'checkout_click'
      * @param string $urlVisited  Full URL of the visited page
      * @param string $productSku  Product reference (empty string if not applicable)
+     * @param array  $metadata    Optional metadata (e.g. attribution)
      */
-    private function emitBotEvent(string $eventType, string $urlVisited, string $productSku = ''): void
+    private function emitBotEvent(string $eventType, string $urlVisited, string $productSku = '', array $metadata = []): void
     {
         $apiKey = Configuration::get(AlloiaPrestashop::CONFIG_API_KEY);
         if (empty($apiKey)) {
@@ -268,7 +362,7 @@ HTML;
             'bot_user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '',
             'url_visited'    => $urlVisited,
             'product_sku'    => $productSku,
-            'metadata'       => [],
+            'metadata'       => $metadata,
         ]);
 
         $shopDomain = strtolower(Context::getContext()->shop->domain);
@@ -300,6 +394,117 @@ HTML;
             );
         }
 
+        curl_close($ch);
+    }
+
+    private function resolvePurchaseAttribution(): string
+    {
+        $ua = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '';
+        return ($ua !== '' && $this->isAiBot($ua)) ? 'bot' : 'human_ai';
+    }
+
+    private function isAiAttributedOrder(Order $order): bool
+    {
+        $ua = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '';
+        if ($ua !== '' && $this->isAiBot($ua)) {
+            return true;
+        }
+        if (AlloiaAttribution::isAiAttributedRequest()) {
+            return true;
+        }
+
+        return $this->orderHasAiAttributionMarker((int) $order->id);
+    }
+
+    private function orderHasAiAttributionMarker(int $orderId): bool
+    {
+        if ($orderId <= 0) {
+            return false;
+        }
+        $marker = pSQL(AlloiaAttribution::ORDER_MARKER);
+        $count = (int) Db::getInstance()->getValue(
+            'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'message`
+             WHERE id_order = ' . (int) $orderId . '
+               AND message LIKE \'%' . $marker . '%\''
+        );
+
+        return $count > 0;
+    }
+
+    private function markOrderAiAttributed(int $orderId): void
+    {
+        if ($this->orderHasAiAttributionMarker($orderId)) {
+            return;
+        }
+        $msg = new Message();
+        $msg->message = AlloiaAttribution::ORDER_MARKER;
+        $msg->id_order = $orderId;
+        $msg->private = 1;
+        $msg->add();
+    }
+
+    /**
+     * @return array<int, array{product_sku: string}>
+     */
+    private function buildOrderLineItems(Order $order): array
+    {
+        $items = [];
+        $products = $order->getProducts();
+        if (!is_array($products)) {
+            return $items;
+        }
+        foreach ($products as $row) {
+            $sku = isset($row['product_reference']) ? (string) $row['product_reference'] : '';
+            if ($sku === '' && !empty($row['product_id'])) {
+                $sku = 'presta-' . (int) $row['product_id'];
+            }
+            if ($sku !== '') {
+                $items[] = ['product_sku' => $sku];
+            }
+        }
+
+        return $items;
+    }
+
+    private function emitStorePurchases(Order $order, string $attribution): void
+    {
+        $lineItems = $this->buildOrderLineItems($order);
+        if (empty($lineItems)) {
+            return;
+        }
+
+        $apiKey = Configuration::get(AlloiaPrestashop::CONFIG_API_KEY);
+        if (empty($apiKey)) {
+            return;
+        }
+
+        $payload = json_encode([
+            'platform'    => 'PrestaShop',
+            'order_id'    => (string) $order->id,
+            'attribution' => $attribution,
+            'currency'    => $this->context->currency->iso_code ?? '',
+            'total'       => (float) $order->total_paid,
+            'line_items'  => $lineItems,
+        ]);
+
+        $shopDomain = $this->getShopDomain();
+        $ch = curl_init('https://www.alloia.io/api/v1/analytics/store-purchase');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $apiKey,
+                'Content-Type: application/json',
+                'Content-Length: ' . strlen($payload),
+                'X-Alloia-Domain: ' . $shopDomain,
+            ],
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_NOSIGNAL       => 1,
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        curl_exec($ch);
         curl_close($ch);
     }
 

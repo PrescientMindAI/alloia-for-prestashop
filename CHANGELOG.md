@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.4] - 2026-05-25
+
+### Added
+- AI commerce attribution via UTM (`utm_source=alloia_ai`) and known AI referrer hosts — no new AlloIA cookies
+- Human `checkout_click` events for AI-attributed cart/checkout traffic
+- Storefront purchase emission to `POST /api/v1/analytics/store-purchase` on order validation, with thank-you page backup pixel
+- Private order message marker for AI-attributed orders
+- UTM appended to product JSON-LD offer URL
+
 ## [1.1.3] - 2026-05-21
 
 ### Fixed

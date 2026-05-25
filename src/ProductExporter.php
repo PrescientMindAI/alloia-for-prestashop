@@ -118,31 +118,19 @@ class ProductExporter
             ];
         }
 
-        $batches = array_chunk($payloads, 50);
-        $created = 0;
-        $updated = 0;
-        $failed = 0;
-        $lastError = '';
-
-        foreach ($batches as $batchIndex => $batch) {
-            try {
-                $response = $client->bulkIngest($batch, $domain);
-                $data = isset($response['data']) ? $response['data'] : [];
-                $created += isset($data['products_created']) ? (int) $data['products_created'] : 0;
-                $updated += isset($data['products_updated']) ? (int) $data['products_updated'] : 0;
-                $failed  += isset($data['products_failed'])  ? (int) $data['products_failed']  : 0;
-            } catch (Exception $e) {
-                $failed += count($batch);
-                $lastError = $e->getMessage();
-            }
-            if ($batchIndex < count($batches) - 1) {
-                sleep(1);
-            }
+        try {
+            $response = $client->bulkIngest($payloads, $domain);
+        } catch (Exception $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
         }
 
+        $data = isset($response['data']) ? $response['data'] : [];
+        $created = isset($data['products_created']) ? (int) $data['products_created'] : 0;
+        $updated = isset($data['products_updated']) ? (int) $data['products_updated'] : 0;
+        $failed = isset($data['products_failed']) ? (int) $data['products_failed'] : 0;
         $processed = $created + $updated + $failed;
 
-        $result = [
+        return [
             'success' => true,
             'message' => $this->module->l('Sync completed.', 'ProductExporter'),
             'products_processed' => $processed,
@@ -153,10 +141,6 @@ class ProductExporter
             'products_sent' => $productsSent,
             'products_ignored' => $productsIgnored,
         ];
-        if ($lastError !== '') {
-            $result['last_error'] = $lastError;
-        }
-        return $result;
     }
 
     /**
